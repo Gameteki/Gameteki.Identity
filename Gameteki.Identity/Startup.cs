@@ -33,9 +33,9 @@ namespace Gameteki.Identity
         public void ConfigureServices(IServiceCollection services)
         {
             var migrationsAssembly = typeof(Startup).GetTypeInfo().Assembly.GetName().Name;
-            const string connectionString = @"Data Source=.;database=Gameteki.Identity;trusted_connection=yes;";
+            var connectionString = Configuration.GetConnectionString("DefaultConnection");
 
-            services.AddControllersWithViews();
+            services.AddControllersWithViews().AddRazorRuntimeCompilation();
 
             services.Configure<IISOptions>(iis =>
             {

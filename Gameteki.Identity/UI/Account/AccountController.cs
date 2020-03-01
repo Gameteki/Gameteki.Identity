@@ -64,6 +64,12 @@ namespace Gameteki.Identity.UI.Account
             return View(vm);
         }
 
+        [HttpGet]
+        public async Task<IActionResult> Register()
+        {
+            return View();
+        }
+
         /// <summary>
         /// Handle postback from username/password login
         /// </summary>
@@ -79,7 +85,7 @@ namespace Gameteki.Identity.UI.Account
             {
                 if (context != null)
                 {
-                    // if the user cancels, send a result back into IdentityServer as if they 
+                    // if the user cancels, send a result back into IdentityServer as if they
                     // denied the consent (even if this client does not require consent).
                     // this will send back an access denied OIDC error response to the client.
                     await interaction.GrantConsentAsync(context, ConsentResponse.Denied);
@@ -147,7 +153,7 @@ namespace Gameteki.Identity.UI.Account
             return View(vm);
         }
 
-        
+
         /// <summary>
         /// Show logout page
         /// </summary>
