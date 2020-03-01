@@ -1,0 +1,29 @@
+@{
+    var version = typeof(IdentityServer4.Hosting.IdentityServerMiddleware).Assembly.GetName().Version.ToString();
+}
+
+<div class="welcome-page">
+    <div class="row page-header">
+        <div class="col-sm-10">
+            <h1>
+                <img class="icon" src="~/icon.jpg">
+                Gameteki Identity
+                <small>(version @version)</small>
+            </h1>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-sm-8">
+            <p>
+                Gameteki Identity is an identity provider designed to support the Gameteki suite of online games and any other fan created site that wants to share account/user data.
+                Registering on this site, or connecting any of the supported identity providers will allow you to any of the sites that support Gameteki Identity.
+            </p>
+        </div>
+        <div class="col-sm-8">
+            <p>
+                Click <a href="~/grants">here</a> to manage your stored grants.
+            </p>
+        </div>
+    </div>
+</div>
