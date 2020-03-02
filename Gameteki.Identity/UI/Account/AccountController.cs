@@ -65,9 +65,10 @@ namespace Gameteki.Identity.UI.Account
         }
 
         [HttpGet]
-        public async Task<IActionResult> Register()
+        public async Task<IActionResult> Register(string returnUrl)
         {
-            return View();
+
+            return View(new RegisterViewModel { ReturnUrl = returnUrl });
         }
 
         /// <summary>
@@ -229,7 +230,7 @@ namespace Gameteki.Identity.UI.Account
                 {
                     EnableLocalLogin = local,
                     ReturnUrl = returnUrl,
-                    Username = context?.LoginHint,
+                    Username = context.LoginHint
                 };
 
                 if (!local)
