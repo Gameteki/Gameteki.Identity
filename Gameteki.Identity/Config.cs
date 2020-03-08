@@ -7,6 +7,7 @@ using System.Collections.Generic;
 
 namespace Gameteki.Identity
 {
+    using IdentityModel;
     using IdentityServer4;
 
     public static class Config
@@ -22,6 +23,9 @@ namespace Gameteki.Identity
             new[]
             {
                 new ApiResource("api1", "My API")
+                {
+                    UserClaims =  { JwtClaimTypes.Name, JwtClaimTypes.Email }
+                }
             };
 
         public static IEnumerable<Client> Clients =>

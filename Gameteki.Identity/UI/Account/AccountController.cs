@@ -1,11 +1,8 @@
-﻿// Copyright (c) Brock Allen & Dominick Baier. All rights reserved.
-// Licensed under the Apache License, Version 2.0. See LICENSE in the project root for license information.
-
-
-namespace Gameteki.Identity.UI.Account
+﻿namespace Gameteki.Identity.UI.Account
 {
     using System;
     using System.Linq;
+    using System.Text;
     using System.Threading.Tasks;
     using Gameteki.Identity.Models;
     using IdentityModel;
@@ -18,6 +15,7 @@ namespace Gameteki.Identity.UI.Account
     using Microsoft.AspNetCore.Authorization;
     using Microsoft.AspNetCore.Identity;
     using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.WebUtilities;
 
     [SecurityHeaders]
     [AllowAnonymous]
@@ -64,15 +62,8 @@ namespace Gameteki.Identity.UI.Account
             return View(vm);
         }
 
-        [HttpGet]
-        public async Task<IActionResult> Register(string returnUrl)
-        {
-
-            return View(new RegisterViewModel { ReturnUrl = returnUrl });
-        }
-
         /// <summary>
-        /// Handle postback from username/password login
+        /// Handle post back from username/password login
         /// </summary>
         [HttpPost]
         [ValidateAntiForgeryToken]
@@ -88,7 +79,7 @@ namespace Gameteki.Identity.UI.Account
                 {
                     // if the user cancels, send a result back into IdentityServer as if they
                     // denied the consent (even if this client does not require consent).
-                    // this will send back an access denied OIDC error response to the client.
+                    // this will send back an access denied oidc error response to the client.
                     await interaction.GrantConsentAsync(context, ConsentResponse.Denied);
 
                     // we can trust model.ReturnUrl since GetAuthorizationContextAsync returned non-null
@@ -101,16 +92,14 @@ namespace Gameteki.Identity.UI.Account
 
                     return Redirect(model.ReturnUrl);
                 }
-                else
-                {
-                    // since we don't have a valid context, then we just go back to the home page
-                    return Redirect("~/");
-                }
+
+                // since we don't have a valid context, then we just go back to the home page
+                return Redirect("~/");
             }
 
             if (ModelState.IsValid)
             {
-                var result = await signInManager.PasswordSignInAsync(model.Username, model.Password, model.RememberLogin, lockoutOnFailure: true);
+                var result = await signInManager.PasswordSignInAsync(model.Username, model.Password, model.RememberLogin, true);
                 if (result.Succeeded)
                 {
                     var user = await userManager.FindByNameAsync(model.Username);
@@ -134,15 +123,14 @@ namespace Gameteki.Identity.UI.Account
                     {
                         return Redirect(model.ReturnUrl);
                     }
-                    else if (string.IsNullOrEmpty(model.ReturnUrl))
+
+                    if (string.IsNullOrEmpty(model.ReturnUrl))
                     {
                         return Redirect("~/");
                     }
-                    else
-                    {
-                        // user might have clicked on a malicious link - should be logged
-                        throw new Exception("invalid return URL");
-                    }
+
+                    // user might have clicked on a malicious link - should be logged
+                    throw new Exception("invalid return URL");
                 }
 
                 await events.RaiseAsync(new UserLoginFailureEvent(model.Username, "invalid credentials", clientId:context?.ClientId));
@@ -154,6 +142,55 @@ namespace Gameteki.Identity.UI.Account
             return View(vm);
         }
 
+        [HttpGet]
+        public async Task<IActionResult> Register(string returnUrl)
+        {
+            var vm = await BuildRegisterViewModelAsync(returnUrl);
+
+            return View(vm);
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> Register(RegisterInputModel model)
+        {
+            model.ReturnUrl = model.ReturnUrl ?? Url.Content("~/");
+            //ExternalLogins = (await signInManager.GetExternalAuthenticationSchemesAsync()).ToList();
+            if (ModelState.IsValid)
+            {
+                var user = new ApplicationUser { UserName = model.Username, Email = model.Email };
+                var result = await userManager.CreateAsync(user, model.Password);
+                if (result.Succeeded)
+                {
+                    //logger.LogInformation("User created a new account with password.");
+
+                    var code = await userManager.GenerateEmailConfirmationTokenAsync(user);
+                    code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+                    var callbackUrl = Url.Page(
+                        "/Account/ConfirmEmail",
+                        null,
+                        new { area = "Identity", userId = user.Id, code },
+                        Request.Scheme);
+
+                    //   await emailSender.SendEmailAsync(model.Email, "Confirm your email",
+                    //$"Please confirm your account by <a href='{HtmlEncoder.Default.Encode(callbackUrl)}'>clicking here</a>.");
+
+                    if (userManager.Options.SignIn.RequireConfirmedAccount)
+                    {
+                        return RedirectToPage("RegisterConfirmation", new { email = model.Email });
+                    }
+
+                    await signInManager.SignInAsync(user, false);
+                    return LocalRedirect(model.ReturnUrl);
+                }
+                foreach (var error in result.Errors)
+                {
+                    ModelState.AddModelError(string.Empty, error.Description);
+                }
+            }
+
+            var vm = await BuildRegisterViewModelAsync(model);
+            return View(vm);
+        }
 
         /// <summary>
         /// Show logout page
@@ -175,7 +212,7 @@ namespace Gameteki.Identity.UI.Account
         }
 
         /// <summary>
-        /// Handle logout page postback
+        /// Handle logout page post back
         /// </summary>
         [HttpPost]
         [ValidateAntiForgeryToken]
@@ -214,12 +251,72 @@ namespace Gameteki.Identity.UI.Account
             return View();
         }
 
-
-        /*****************************************/
-        /* helper APIs for the AccountController */
-        /*****************************************/
-        private async Task<LoginViewModel> BuildLoginViewModelAsync(string returnUrl)
+        private async Task<RegisterViewModel> BuildRegisterViewModelAsync(string returnUrl)
         {
+            var context = await interaction.GetAuthorizationContextAsync(returnUrl);
+            if (context?.IdP != null && await schemeProvider.GetSchemeAsync(context.IdP) != null)
+            {
+                var local = context.IdP == IdentityServer4.IdentityServerConstants.LocalIdentityProvider;
+
+                // this is meant to short circuit the UI and only trigger the one external IdP
+                var vm = new RegisterViewModel
+                {
+                    ReturnUrl = returnUrl,
+                };
+
+                if (!local)
+                {
+                    vm.ExternalProviders = new[] { new ExternalProvider { AuthenticationScheme = context.IdP } };
+                }
+
+                return vm;
+            }
+
+            var schemes = await schemeProvider.GetAllSchemesAsync();
+
+            var providers = schemes
+                .Where(x => x.DisplayName != null ||
+                            (x.Name.Equals(AccountOptions.WindowsAuthenticationSchemeName, StringComparison.OrdinalIgnoreCase))
+                )
+                .Select(x => new ExternalProvider
+                {
+                    DisplayName = x.DisplayName ?? x.Name,
+                    AuthenticationScheme = x.Name
+                }).ToList();
+
+            if (context?.ClientId == null)
+            {
+                return new RegisterViewModel
+                {
+                    ReturnUrl = returnUrl,
+                    ExternalProviders = providers.ToArray()
+                };
+            }
+
+            var client = await clientStore.FindEnabledClientByIdAsync(context.ClientId);
+            if (client?.IdentityProviderRestrictions != null && client.IdentityProviderRestrictions.Any())
+            {
+                providers = providers.Where(provider => client.IdentityProviderRestrictions.Contains(provider.AuthenticationScheme)).ToList();
+            }
+
+            return new RegisterViewModel
+            {
+                ReturnUrl = returnUrl,
+                ExternalProviders = providers.ToArray()
+            };
+        }
+
+        private async Task<RegisterViewModel> BuildRegisterViewModelAsync(RegisterInputModel model)
+        {
+            var vm = await BuildRegisterViewModelAsync(model.ReturnUrl);
+
+            vm.Email = model.Email;
+
+            return vm;
+        }
+
+        private async Task<LoginViewModel> BuildLoginViewModelAsync(string returnUrl)
+        { 
             var context = await interaction.GetAuthorizationContextAsync(returnUrl);
             if (context?.IdP != null && await schemeProvider.GetSchemeAsync(context.IdP) != null)
             {
@@ -319,7 +416,7 @@ namespace Gameteki.Identity.UI.Account
             {
                 AutomaticRedirectAfterSignOut = AccountOptions.AutomaticRedirectAfterSignOut,
                 PostLogoutRedirectUri = logout?.PostLogoutRedirectUri,
-                ClientName = string.IsNullOrEmpty(logout?.ClientName) ? logout?.ClientId : logout?.ClientName,
+                ClientName = string.IsNullOrEmpty(logout?.ClientName) ? logout?.ClientId : logout.ClientName,
                 SignOutIframeUrl = logout?.SignOutIFrameUrl,
                 LogoutId = logoutId
             };
